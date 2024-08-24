@@ -45,9 +45,9 @@ def create_server_connection(host_name, user_name, user_password, db_name):
     return connection
 
 # Specifica il nome del tuo database qui
-database_name = "sidan"
+database_name = "database_name"
 
 # Crea la connessione al database MySQL
-connection = create_server_connection("127.0.0.1", "root", "Castagnole2024!", database_name)
+connection = create_server_connection("ip_addres", "user", "password", database_name)
 
 
