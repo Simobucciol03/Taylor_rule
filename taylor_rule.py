@@ -209,7 +209,7 @@ def main():
     7. Plot the actual and predicted interest rates over time.
     """
     # Step 1: Establish a connection to the MySQL database
-    connection = create_server_connection("127.0.0.1", "root", "Castagnole2024!", "sidan") 
+    connection = create_server_connection("xxxxx", "xxxx", "xxxxxx", "xxxxx") # Replace with your database credentials 
     # Step 2: Prompt the user to select a central bank
     BC = input('Per quale Banca Centrale vuoi fare la previsione? (FED, BCE, BOE or BOJ): ')  
 
