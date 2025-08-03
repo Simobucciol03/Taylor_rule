@@ -35,7 +35,7 @@ Make sure these libraries are installed in your Python environment. You can inst
     `pip install pandas scikit-learn matplotlib sqlalchemy mysql-connector-python`
 """
 
-from login_mysql import create_server_connection
+from login_mysql_1 import create_server_connection
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
@@ -44,33 +44,34 @@ from sqlalchemy import create_engine
 
 def get_data_for_central_bank(connection, bank):
     """
-    Retrieve and preprocess economic data for a specified central bank (either FED or BCE) from a MySQL database.
+    Retrieve and preprocess economic data for a specified central bank from a MySQL database.
 
     Parameters:
     - connection (mysql.connector.connection_cext.CMySQLConnection): A connection object to the MySQL database.
-    - bank (str): The central bank for which to retrieve data. Acceptable values are 'FED' or 'BCE'.
+    - bank (str): The central bank for which to retrieve data. Acceptable values are 'FED', 'BCE', 'BOE', or 'BOJ'.
 
     Returns:
     - df (DataFrame): A DataFrame containing the processed data with columns 'funds_rate', 'output_gap', and 'inflation_gap'.
     - INTEREST_RATE_POT (Series): A Series containing potential interest rate values.
     - output_gap (Series): A Series containing the calculated output gap.
     - inflation_gap (Series): A Series containing the calculated inflation gap.
-    - INTEREST_RATE['date'] (Series): A Series containing the dates corresponding to the interest rate data points.
+    - dates (Series): A Series containing the dates corresponding to the interest rate data points.
     """
     # Define the data tickers, frequencies, and start dates based on the selected central bank
     if bank == 'FED':
         GDP_TICKER = 'GDPC1'
-        GDP_FREQUENCY = 'Q'
+        GDP_FREQUENCY = 'q'
         GDPPOT_TICKER = 'GDPPOT'
-        GDPPOT_FREQUENCY = 'Q'
+        GDPPOT_FREQUENCY = 'q'
         CPI_TICKER = 'CPILFESL'
-        CPI_FREQUENCY = 'Q'
+        CPI_FREQUENCY = 'q'
         INTEREST_RATE_TICKER = 'FEDFUNDS'
-        INTEREST_RATE_FREQUENCY = 'Q'
-        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1Y'
-        REAL_INTEREST_RATE_FREQUENCY = 'Q'
+        INTEREST_RATE_FREQUENCY = 'q'
+        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1YE'
+        REAL_INTEREST_RATE_FREQUENCY = 'q'
         CPI_START_DATE = '1981-01-01'
         GDP_START_DATE = '1982-01-01'
+        RATE_COLUMN = 'FEDFUNDS'
     elif bank == 'BCE':
         GDP_TICKER = 'EA19GDPC'
         GDP_FREQUENCY = 'Q'
@@ -80,10 +81,11 @@ def get_data_for_central_bank(connection, bank):
         CPI_FREQUENCY = 'M'
         INTEREST_RATE_TICKER = 'MIR00EZM156N'
         INTEREST_RATE_FREQUENCY = 'M'
-        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1Y'
+        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1YE'
         REAL_INTEREST_RATE_FREQUENCY = 'Q'
         CPI_START_DATE = '1999-01-01'
         GDP_START_DATE = '1995-01-01'
+        RATE_COLUMN = 'MIR00EZM156N'
     elif bank == 'BOE':
         GDP_TICKER = 'LNSAGDPC'
         GDP_FREQUENCY = 'Q'
@@ -93,10 +95,11 @@ def get_data_for_central_bank(connection, bank):
         CPI_FREQUENCY = 'Q'
         INTEREST_RATE_TICKER = 'UKBRBASE'
         INTEREST_RATE_FREQUENCY = 'M'
-        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1Y'
+        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1YE'
         REAL_INTEREST_RATE_FREQUENCY = 'Q'
         CPI_START_DATE = '1989-01-01'
         GDP_START_DATE = '1990-01-01'
+        RATE_COLUMN = 'UKBRBASE'
     elif bank == 'BOJ':
         GDP_TICKER = 'JPNRGDP'
         GDP_FREQUENCY = 'Q'
@@ -106,42 +109,62 @@ def get_data_for_central_bank(connection, bank):
         CPI_FREQUENCY = 'Q'
         INTEREST_RATE_TICKER = 'JPNIRATE'
         INTEREST_RATE_FREQUENCY = 'Q'
-        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1Y'
+        REAL_INTEREST_RATE_TICKER = 'REAINTRATREARAT1YE'
         REAL_INTEREST_RATE_FREQUENCY = 'Q'
         CPI_START_DATE = '1981-01-01'
         GDP_START_DATE = '1982-01-01'
+        RATE_COLUMN = 'JPNIRATE'
     else:
         raise ValueError("Invalid central bank. Please use 'FED', 'BCE', 'BOE' or 'BOJ'.")
 
+    # Read data from database (removed duplicate queries)
     GDP = pd.read_sql(f"SELECT * FROM {GDP_TICKER}_{GDP_FREQUENCY} WHERE date >= '{GDP_START_DATE}'", connection)
     GDPPOT = pd.read_sql(f"SELECT * FROM {GDPPOT_TICKER}_{GDPPOT_FREQUENCY} WHERE date >= '{GDP_START_DATE}'", connection)
     CPI = pd.read_sql(f"SELECT * FROM {CPI_TICKER}_{CPI_FREQUENCY} WHERE date >= '{CPI_START_DATE}'", connection)
+    INTEREST_RATE = pd.read_sql(f"SELECT * FROM {INTEREST_RATE_TICKER}_{INTEREST_RATE_FREQUENCY} WHERE date >= '{GDP_START_DATE}' AND date <= '2024-01-01'", connection)
     
+    # Calculate inflation (year-over-year change)
     CPI['value_shifted_4'] = CPI['value'].shift(4)
     CPI['inflation'] = ((CPI['value'] - CPI['value_shifted_4']) / CPI['value_shifted_4']) * 100
 
+    # Merge data on dates
     merge = GDP.merge(GDPPOT, on='date', suffixes=('_GDP', '_GDPPOT'))
-    merge = merge.merge(CPI, on='date', suffixes=('_GDP', '_CPI'))
+    merge = merge.merge(CPI, on='date', suffixes=('', '_CPI'))
 
+    # Calculate gaps
     output_gap = (merge['value_GDP'] - merge['value_GDPPOT']) / merge['value_GDPPOT'] * 100
     inflation_gap = merge['inflation'] - 2
     
-    INTEREST_RATE = pd.read_sql(f"SELECT * FROM {INTEREST_RATE_TICKER}_{INTEREST_RATE_FREQUENCY} WHERE date >= '{GDP_START_DATE}' AND date <= '2024-01-01'", connection)
+    print(INTEREST_RATE)
     
+    # Get real interest rate data
     query = f"SELECT * FROM {REAL_INTEREST_RATE_TICKER}_{REAL_INTEREST_RATE_FREQUENCY} WHERE date >= '{GDP_START_DATE}' AND date <= '2024-01-01'"
     REAL_INTEREST_RATE = pd.read_sql(query, connection)
-    REAL_INTEREST_RATE = pd.to_numeric(REAL_INTEREST_RATE[f'{REAL_INTEREST_RATE_TICKER}E'])
+    print(REAL_INTEREST_RATE)
+    REAL_INTEREST_RATE_values = pd.to_numeric(REAL_INTEREST_RATE['REAINTRATREARAT1YE'], errors='coerce')
 
-    #INTEREST_RATE_POT = REAL_INTEREST_RATE + 2
-    INTEREST_RATE_POT = REAL_INTEREST_RATE + merge['inflation']
+    # Calculate potential interest rate
+    # Align the real interest rate data with the merge dataframe by date
+    REAL_INTEREST_RATE['date'] = pd.to_datetime(REAL_INTEREST_RATE['date'])
+    merge['date'] = pd.to_datetime(merge['date'])
+    
+    # Merge real interest rate data
+    merge_with_real_rate = merge.merge(REAL_INTEREST_RATE[['date', 'REAINTRATREARAT1YE']], on='date', how='left', suffixes=('', '_real_rate'))
+    
+    print(merge_with_real_rate)
+    
+    # Calculate potential interest rate
+    INTEREST_RATE_POT = merge_with_real_rate['REAINTRATREARAT1YE'] + merge_with_real_rate['inflation']
 
+    # Create the final dataframe with proper column naming
     data = {
-        'funds_rate': INTEREST_RATE['value'],
+        'funds_rate': INTEREST_RATE[RATE_COLUMN],
         'output_gap': output_gap,
         'inflation_gap': inflation_gap,
     }
 
     df = pd.DataFrame(data)
+    print(df)
     return df, INTEREST_RATE_POT, output_gap, inflation_gap, INTEREST_RATE['date']
 
 def train_and_predict(df, INTEREST_RATE_POT, output_gap, inflation_gap):
@@ -160,7 +183,10 @@ def train_and_predict(df, INTEREST_RATE_POT, output_gap, inflation_gap):
     - coefficients (ndarray): Coefficients of the trained linear regression model.
     - intercept (float): Intercept of the trained linear regression model.
     """
+    # Independent variables
     X = df[['output_gap', 'inflation_gap']]
+
+    # Dependent variable
     y = df['funds_rate']
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -176,22 +202,26 @@ def train_and_predict(df, INTEREST_RATE_POT, output_gap, inflation_gap):
 
     return model, predict_interest_rate, coefficients, intercept
 
-def plot_results(date, actual_rate, predicted_rate):
-    # Create a new figure with a specific size
+def plot_results(date, actual_rate, forecast_rate):
+    # Convert to datetime and handle any issues
+    date = pd.to_datetime(date, errors='coerce')
+    
+    # Remove any rows where date is NaN
+    mask = date.notna()
+    date = date[mask]
+    actual_rate = actual_rate[mask] if hasattr(actual_rate, '__getitem__') else actual_rate
+    forecast_rate = forecast_rate[mask] if hasattr(forecast_rate, '__getitem__') else forecast_rate
+    
     plt.figure(figsize=(12, 6))
-    # Plot the actual and predicted interest rates
     plt.plot(date, actual_rate, label='Actual Interest Rate', color='blue')
-    plt.plot(date, predicted_rate, label='Predicted Interest Rate', color='orange')
-
-    # Set the x-axis label and the y-axis label
+    plt.plot(date, forecast_rate, label='Forecast Interest Rate', color='red')
     plt.xlabel('Date')
-    plt.ylabel('Interest Rate')
-    # Set the title of the plot and add a legend to the plot
-    plt.title('Actual vs Predicted Interest Rates')
+    plt.ylabel('Interest Rate (%)')
+    plt.title('Taylor Rule: Actual vs Forecast Interest Rate')
     plt.legend()
-    # Enable the grid for better readability
     plt.grid(True)
-    # Display the plot
+    plt.xticks(rotation=45)
+    plt.tight_layout()
     plt.show()
 
 def main():
@@ -209,7 +239,7 @@ def main():
     7. Plot the actual and predicted interest rates over time.
     """
     # Step 1: Establish a connection to the MySQL database
-    connection = create_server_connection("xxxxx", "xxxx", "xxxxxx", "xxxxx") # Replace with your database credentials 
+    connection = create_server_connection("127.0.0.1", "root", "Castagnole2024!", "sidan") 
     # Step 2: Prompt the user to select a central bank
     BC = input('Per quale Banca Centrale vuoi fare la previsione? (FED, BCE, BOE or BOJ): ')  
 
